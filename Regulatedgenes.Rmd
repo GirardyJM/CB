@@ -1,0 +1,94 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+# load DESeq2 library (this takes some time)
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+#BiocManager::install("DESeq2")
+
+
+```{r} 
+count_data <- read.csv("count_data.csv", row.names = 1)
+sample_info <- read.csv("sample_info.csv", row.names = 1)
+dds <- DESeqDataSetFromMatrix(countData = count_data,
+                              colData = sample_info,
+                              design = ~ tissueType + individualID)
+```{r}
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+num_genes <- nrow(dds)
+num_genes
+dds <- DESeq(dds)
+
+
+
+Sort genes in each vector by adjusted p-values in an ascending order.
+
+```{r}
+result <- results(dds, contrast = c("tissueType", "primary_tumor", "normal"))
+upregulated_genes <- subset(result, log2FoldChange > 2 & padj < 0.05)
+upregulated_genes <- upregulated_genes[order(upregulated_genes$padj), ]
+upregulated_genes <- rownames(upregulated_genes)
+downregulated_genes <- subset(result, log2FoldChange < -2 & padj < 0.05)
+downregulated_genes <- downregulated_genes[order(downregulated_genes$padj), ]
+downregulated_genes <- rownames(downregulated_genes)
+upregulated <- length(upregulated_genes)
+downregulated <- length(downregulated_genes)
+upregulated_genes
+downregulated_genes
+upregulated
+downregulated
+
+
+###  Plot normalized counts for the most significant gene
+
+find out the most significant gene with the smallest adjusted p-value. plot the normalized counts for this gene in 3 different tissue types.
+
+```{r}
+res <- result[order(result$padj), ]
+most_sig_gene <- rownames(res)[1]
+most_sig_gene
+log2FoldChange <- res$log2FoldChange[1]
+regulation <- ifelse(log2FoldChange > 0, "up-regulated", "down-regulated")
+regulation
+plotCounts(dds, gene = most_sig_gene, intgroup = "tissueType")
+
+### Volcano plot
+
+
+```{r}
+mycols <- ifelse(result$log2FoldChange > 2 & result$padj < 0.05, "red",
+                 ifelse(result$log2FoldChange < -2 & result$padj < 0.05, "blue", "black"))
+plot(result$log2FoldChange, result$padj, col = mycols, pch = 20,
+     xlab = "Log2FoldChange", ylab = "Adjusted p-value (padj)", main = "Volcano Plot")
+abline(v = c(-2, 2), col = "gray", lty = 2)
+abline(h = 0.05, col = "gray", lty = 2)
+```
+
+### EdgeR analysis
+
+
+```{r, include=FALSE}
+# Load libraries (please install them if you haven't installed them)
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+    #install.packages("BiocManager")
+BiocManager::install("limma")
+BiocManager::install("edgeR")
+
+library(limma)
+library(edgeR)
+```
+
+```{r}
+group <- factor(sample_info$tissueType)
+dge <- DGEList(counts = count_data, group = group)
+keep <- filterByExpr(dge, group = group)
+dge <- dge[keep, , keep.lib.sizes = FALSE]
+dge <- calcNormFactors(dge)
+dge <- estimateDisp(dge)
+test <- exactTest(dge, pair = c("normal", "primary_tumor"))
+top_genes <- topTags(test, n = 10)
+top_genes$table
+```
